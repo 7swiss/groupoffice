@@ -2,6 +2,7 @@
 
 namespace go\core\controller;
 
+use GO\Base\Util\StringHelper;
 use go\core\db\Criteria;
 use go\core\model\Acl;
 use go\core\orm\Query;
@@ -17,11 +18,45 @@ class Search extends EntityController {
 	}
 
 	public function email($params) {
-		
+
 		$q = $params['filter']['text'] ?? null;
 
-		$query = new Query();
+		// filter on contacts that are linked to this project
+		if(isset($params['projectId']) && isset($params['emailProjectFilter'])) {
+			$projectId = $params['projectId'];
+			$sql = "SELECT a.email, ac.name
+					FROM pr2_projects pr2
+					INNER join core_link c ON c.fromId = pr2.id
+					INNER join addressbook_email_address a ON a.contactId = c.toId
+					INNER JOIN addressbook_contact ac ON ac.id = c.toId
+					WHERE pr2.id = {$projectId}
+					AND a.email LIKE '%{$q}%'";
+			$rows = go()->getDbConnection()->query($sql)->fetchAll();
 
+			$sql = "SELECT description 
+					FROM pr2_projects 
+					WHERE id = {$projectId}";
+
+			$row = go()->getDbConnection()->query($sql)->fetch();
+			$description = $row["description"];
+			$strHelper = new StringHelper();
+			$allEmails = $strHelper->get_emails_from_string($description);
+			foreach($allEmails as $email) {
+				if(strpos($email, $q) !== false) {
+					$emails = array();
+					$emails["email"] = $email;
+					$emails["name"] = "";
+					$rows[] = $emails;
+				}
+			}
+
+			\go\core\jmap\Response::get()->addResponse([
+				'list' => $rows
+			]);
+			return;
+		}
+
+		$query = new Query();
 		$selectQueryContact ='u.id as entityId, "User" as entity, u.email, "" as type, u.displayName AS name, u.avatarId AS photoBlobId';
 		$isEmailModuleAvailable = Module::isAvailableFor("legacy","email");
 
@@ -32,16 +67,16 @@ class Search extends EntityController {
 			$selectQueryContact .= ', NULL as priority';
 		}
 		$query->select($selectQueryContact)
-						->from('core_user', 'u')
-						->join('core_group', 'g', 'u.id = g.isUserGroupFor');
+			->from('core_user', 'u')
+			->join('core_group', 'g', 'u.id = g.isUserGroupFor');
 
 
 		if (!empty($q)) {
 			$query->where(
 				(new Criteria)
-							->where('email', 'LIKE', '%' . $q . '%')
-							->orWhere('displayName', 'LIKE', '%' . $q . '%')
-						);
+					->where('email', 'LIKE', '%' . $q . '%')
+					->orWhere('displayName', 'LIKE', '%' . $q . '%')
+			);
 		}
 
 		Acl::applyToQuery($query, 'g.aclId');
@@ -54,9 +89,9 @@ class Search extends EntityController {
 				$selectQuery .= ', em.last_mail_time AS priority';
 			}
 			$contactsQuery = (new Query)
-							->select($selectQuery)
-							->from("addressbook_contact", "c")
-							->join("addressbook_email_address", "e", "e.contactId=c.id");
+				->select($selectQuery)
+				->from("addressbook_contact", "c")
+				->join("addressbook_email_address", "e", "e.contactId=c.id");
 
 			if($isEmailModuleAvailable && $optionEnabled == "1") {
 				$contactsQuery->join("em_contacts_last_mail_times", "em", "em.contact_id=c.id","LEFT");
@@ -68,9 +103,9 @@ class Search extends EntityController {
 
 			if (!empty($q)) {
 				$contactsQuery->where(
-						(new Criteria)
-								->where('e.email', 'LIKE', '%' . $q . '%')
-								->orWhere('c.name', 'LIKE', '%' . $q . '%')
+					(new Criteria)
+						->where('e.email', 'LIKE', '%' . $q . '%')
+						->orWhere('c.name', 'LIKE', '%' . $q . '%')
 				);
 			}
 
@@ -85,46 +120,46 @@ class Search extends EntityController {
 			$query->orderBy(["priority" => "DESC", "name" => "ASC"]);
 		}
 		go()->debug($query);
-		
+
 		\go\core\jmap\Response::get()->addResponse([
-				'list' => $query->toArray()
-				]);
+			'list' => $query->toArray()
+		]);
 	}
-	
+
 	/**
 	 * Handles the Foo entity's Foo/query command
-	 * 
+	 *
 	 * @param array $params
 	 * @see https://jmap.io/spec-core.html#/query
 	 */
 	public function query($params) {
 		return $this->defaultQuery($params);
 	}
-	
+
 	/**
 	 * Handles the Foo entity's Foo/get command
-	 * 
+	 *
 	 * @param array $params
 	 * @see https://jmap.io/spec-core.html#/get
 	 */
 	public function get($params) {
 		return $this->defaultGet($params);
 	}
-	
+
 	/**
 	 * Handles the Foo entity's Foo/set command
-	 * 
+	 *
 	 * @see https://jmap.io/spec-core.html#/set
 	 * @param array $params
 	 */
 	public function set($params) {
 		return $this->defaultSet($params);
 	}
-	
-	
+
+
 	/**
 	 * Handles the Foo entity's Foo/changes command
-	 * 
+	 *
 	 * @param array $params
 	 * @see https://jmap.io/spec-core.html#/changes
 	 */
